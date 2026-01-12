@@ -2,32 +2,82 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>トランシーバー（1台/2台両対応）</title>
+<title>トランシーバー</title>
+
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="manifest" href="manifest.json">
+
 <style>
-body { text-align:center; font-size:22px; }
-button { font-size:26px; padding:20px; }
-#status { margin-top:20px; }
+body {
+  font-family: sans-serif;
+  text-align: center;
+  background: #111;
+  color: #fff;
+}
+#status {
+  font-size: 22px;
+  margin: 20px;
+  padding: 10px;
+  border-radius: 10px;
+  background: #333;
+}
+button {
+  font-size: 28px;
+  padding: 20px 40px;
+  border-radius: 20px;
+  border: none;
+}
+.ptt {
+  background: red;
+  color: white;
+}
 </style>
 </head>
+
 <body>
 
-<h2>トランシーバー</h2>
-<button id="ptt">押して話す</button>
-<div id="status">未接続（1台モード）</div>
+<h1>📻 トランシーバー</h1>
+
+<div id="status">起動中…</div>
+
+<button id="ptt" class="ptt">押して話す</button>
 
 <script>
-let ctx, mic, gain;
+let ctx;
 let pc = null;
-let connected = false;
+let peerConnected = false;
+let localAudio = null;
 
-// WebRTC（超簡易・同一URL想定）
+const statusEl = document.getElementById("status");
+const ptt = document.getElementById("ptt");
+
+function setStatus(txt) {
+  statusEl.textContent = txt;
+}
+
+// ===== オンライン / オフライン検出 =====
+function updateOnlineStatus() {
+  if (!navigator.onLine) {
+    setStatus("✈️ オフライン（1台モード）");
+  } else if (peerConnected) {
+    setStatus("🔗 接続中（2台トランシーバー）");
+  } else {
+    setStatus("🌐 オンライン（待機・1台）");
+  }
+}
+window.addEventListener("online", updateOnlineStatus);
+window.addEventListener("offline", updateOnlineStatus);
+
+// ===== WebRTC 超簡易接続（同URL想定）=====
 async function setupPeer() {
+  if (!navigator.onLine) return;
+
   pc = new RTCPeerConnection();
 
   pc.ontrack = e => {
-    const audio = new Audio();
-    audio.srcObject = e.streams[0];
-    audio.play();
+    const a = new Audio();
+    a.srcObject = e.streams[0];
+    a.play();
   };
 
   pc.onicecandidate = e => {
@@ -46,43 +96,51 @@ async function setupPeer() {
       const ans = await pc.createAnswer();
       await pc.setLocalDescription(ans);
       localStorage.setItem("answer", JSON.stringify(ans));
-      connected = true;
-      status.textContent = "接続中（2台モード）";
+      peerConnected = true;
+      updateOnlineStatus();
     }
     if (e.key === "answer" && !pc.currentRemoteDescription) {
       await pc.setRemoteDescription(JSON.parse(e.newValue));
-      connected = true;
-      status.textContent = "接続中（2台モード）";
+      peerConnected = true;
+      updateOnlineStatus();
     }
   });
 }
 
-setupPeer();
-
-const ptt = document.getElementById("ptt");
-const status = document.getElementById("status");
-
-ptt.onmousedown = async () => {
+// ===== 1台モード（ローカル返し）=====
+function localMonitor(stream) {
   ctx = new (window.AudioContext || window.webkitAudioContext)();
-  await ctx.resume();
+  const src = ctx.createMediaStreamSource(stream);
+  src.connect(ctx.destination);
+}
 
+// ===== PTT =====
+ptt.onmousedown = async () => {
   const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  mic = ctx.createMediaStreamSource(stream);
-  gain = ctx.createGain();
-  gain.gain.value = 1.0;
 
-  if (connected && pc) {
-    stream.getTracks().forEach(t => pc.addTrack(t, stream));
-  } else {
-    mic.connect(gain);
-    gain.connect(ctx.destination);
-    status.textContent = "1台モード（自分に返す）";
+  if (!navigator.onLine || !peerConnected) {
+    localMonitor(stream);
+    return;
   }
+
+  stream.getTracks().forEach(t => pc.addTrack(t, stream));
 };
 
 ptt.onmouseup = () => {
-  if (ctx) ctx.close();
+  if (ctx) {
+    ctx.close();
+    ctx = null;
+  }
 };
+
+// 初期化
+setupPeer();
+updateOnlineStatus();
+
+// Service Worker（PWA）
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js");
+}
 </script>
 
 </body>
