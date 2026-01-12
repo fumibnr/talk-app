@@ -3,28 +3,25 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>トランシーバー</title>
+<title>1台トランシーバー</title>
 <style>
 body { font-family:sans-serif; text-align:center; padding:20px; }
-button { font-size:20px; padding:20px; width:100%; }
+button { font-size:22px; padding:25px; width:100%; }
 #status { margin:20px; font-weight:bold; }
 </style>
 </head>
 <body>
 
-<div id="status">起動中…</div>
+<div id="status">タップして開始</div>
 <button id="talk">押して話す</button>
 
 <script>
 let ctx, mic, gain;
-let pc, localStream;
 
-/* ===== 共通 ===== */
-function show(text){ status.textContent = text; }
-
-async function initAudio() {
-  if (ctx) return;
+/* 初期化 */
+async function init() {
   ctx = new (window.AudioContext||window.webkitAudioContext)();
+
   const stream = await navigator.mediaDevices.getUserMedia({
     audio:{
       echoCancellation:false,
@@ -32,62 +29,27 @@ async function initAudio() {
       autoGainControl:false
     }
   });
+
   mic = ctx.createMediaStreamSource(stream);
   gain = ctx.createGain();
-  gain.gain.value = 0;
+  gain.gain.value = 0; // ← 最初は完全停止
+
   mic.connect(gain).connect(ctx.destination);
+
+  status.textContent = "✈️ 1台モード（一時停止OK）";
 }
 
-/* ===== 1台モード（オフライン） ===== */
-async function startOffline() {
-  show("✈️ オフライン（1台モード）");
-  await initAudio();
-}
+/* ユーザー操作で開始 */
+document.body.addEventListener("click", async ()=>{
+  if (!ctx) await init();
+  if (ctx.state === "suspended") await ctx.resume();
+},{once:true});
 
-/* ===== 2台モード（オンライン） ===== */
-async function startOnline() {
-  show("🌐 オンライン（2台モード）");
-
-  localStream = await navigator.mediaDevices.getUserMedia({audio:true});
-
-  pc = new RTCPeerConnection();
-
-  localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
-
-  pc.ontrack = e => {
-    const a = document.createElement("audio");
-    a.srcObject = e.streams[0];
-    a.autoplay = true;
-  };
-
-  // ⚠️ ここが「中継（signaling）」部分
-  // 実際は Firebase / WebSocket に差し替える
-  show("🌐 オンライン（※中継未接続）");
-}
-
-/* ===== モード自動判定 ===== */
-async function updateMode() {
-  if (navigator.onLine) {
-    await startOnline();
-  } else {
-    await startOffline();
-  }
-}
-
-window.addEventListener("online", updateMode);
-window.addEventListener("offline", updateMode);
-
-/* ===== PTT ===== */
-talk.onmousedown = () => gain && (gain.gain.value = 1);
-talk.onmouseup   = () => gain && (gain.gain.value = 0);
+/* 押して話す（PTT） */
+talk.onmousedown  = () => gain && (gain.gain.value = 1);
+talk.onmouseup    = () => gain && (gain.gain.value = 0);
 talk.ontouchstart = () => gain && (gain.gain.value = 1);
 talk.ontouchend   = () => gain && (gain.gain.value = 0);
-
-/* ===== 初回ユーザー操作 ===== */
-document.body.addEventListener("click", async ()=>{
-  if (ctx && ctx.state==="suspended") await ctx.resume();
-  updateMode();
-},{once:true});
 </script>
 
 </body>
