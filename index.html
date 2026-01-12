@@ -1,6 +1,89 @@
 <!DOCTYPE html>
-<html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>トランシーバー（1台/2台両対応）</title>
+<style>
+body { text-align:center; font-size:22px; }
+button { font-size:26px; padding:20px; }
+#status { margin-top:20px; }
+</style>
+</head>
 <body>
-<button onclick="alert('OK')">押す</button>
+
+<h2>トランシーバー</h2>
+<button id="ptt">押して話す</button>
+<div id="status">未接続（1台モード）</div>
+
+<script>
+let ctx, mic, gain;
+let pc = null;
+let connected = false;
+
+// WebRTC（超簡易・同一URL想定）
+async function setupPeer() {
+  pc = new RTCPeerConnection();
+
+  pc.ontrack = e => {
+    const audio = new Audio();
+    audio.srcObject = e.streams[0];
+    audio.play();
+  };
+
+  pc.onicecandidate = e => {
+    if (e.candidate) {
+      localStorage.setItem("ice", JSON.stringify(e.candidate));
+    }
+  };
+
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  localStorage.setItem("offer", JSON.stringify(offer));
+
+  window.addEventListener("storage", async e => {
+    if (e.key === "offer" && !pc.currentRemoteDescription) {
+      await pc.setRemoteDescription(JSON.parse(e.newValue));
+      const ans = await pc.createAnswer();
+      await pc.setLocalDescription(ans);
+      localStorage.setItem("answer", JSON.stringify(ans));
+      connected = true;
+      status.textContent = "接続中（2台モード）";
+    }
+    if (e.key === "answer" && !pc.currentRemoteDescription) {
+      await pc.setRemoteDescription(JSON.parse(e.newValue));
+      connected = true;
+      status.textContent = "接続中（2台モード）";
+    }
+  });
+}
+
+setupPeer();
+
+const ptt = document.getElementById("ptt");
+const status = document.getElementById("status");
+
+ptt.onmousedown = async () => {
+  ctx = new (window.AudioContext || window.webkitAudioContext)();
+  await ctx.resume();
+
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  mic = ctx.createMediaStreamSource(stream);
+  gain = ctx.createGain();
+  gain.gain.value = 1.0;
+
+  if (connected && pc) {
+    stream.getTracks().forEach(t => pc.addTrack(t, stream));
+  } else {
+    mic.connect(gain);
+    gain.connect(ctx.destination);
+    status.textContent = "1台モード（自分に返す）";
+  }
+};
+
+ptt.onmouseup = () => {
+  if (ctx) ctx.close();
+};
+</script>
+
 </body>
 </html>
